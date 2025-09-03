@@ -1,11 +1,22 @@
-FROM nginx:alpine
+FROM node:20-alpine AS web-build
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci || npm install
+COPY app.jsx styles.css index.html manifest.json service-worker.js ./
+COPY vendor ./vendor
+COPY icon-*.png ./
+RUN npm run build
 
-# Copy static PWA assets into the default Nginx web root
-COPY index.html styles.css app.jsx service-worker.js manifest.json /usr/share/nginx/html/
-COPY icon-*.png /usr/share/nginx/html/
+FROM nginx:alpine
+COPY --from=web-build /app/index.html /usr/share/nginx/html/index.html
+COPY --from=web-build /app/styles.css /usr/share/nginx/html/styles.css
+COPY --from=web-build /app/manifest.json /usr/share/nginx/html/manifest.json
+COPY --from=web-build /app/service-worker.js /usr/share/nginx/html/service-worker.js
+COPY --from=web-build /app/icon-*.png /usr/share/nginx/html/
+COPY --from=web-build /app/vendor /usr/share/nginx/html/vendor
+COPY --from=web-build /app/dist /usr/share/nginx/html/dist
 
 # Custom Nginx config to serve SPA and proxy /api
 COPY nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 80
-

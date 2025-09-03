@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 # Re-export SQLAlchemy Base from models so test and app code can create tables
@@ -8,7 +9,13 @@ from .models import Base
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://postgres:postgres@localhost/trailguard')
 
-engine = create_engine(DATABASE_URL, future=True)
+# Use an in-memory SQLite that persists across connections during tests
+if DATABASE_URL.startswith('sqlite') and ':memory:' in DATABASE_URL:
+    engine = create_engine(
+        DATABASE_URL, future=True, connect_args={'check_same_thread': False}, poolclass=StaticPool
+    )
+else:
+    engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

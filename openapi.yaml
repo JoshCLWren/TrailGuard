@@ -558,9 +558,10 @@ components:
     Location:
       type: object
       properties:
-        latLng: { $ref: '#/components/schemas/LatLng' }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
         accuracyMeters: { type: number, format: float }
-      required: [latLng]
+      required: [lat, lng]
 
     Breadcrumb:
       type: object

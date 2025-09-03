@@ -97,23 +97,73 @@ start_backend() {
   # Use module string for reload support
   uvicorn trailguard_api.main:app --host "$UVICORN_HOST" --port "$UVICORN_PORT" --reload &
   BACK_PID=$!
+  # Capture process group id for clean shutdown (includes reloader and workers)
+  BACK_PGID=$(ps -o pgid= "$BACK_PID" | tr -d ' ' || echo "")
 }
 
 start_pwa() {
+  # Build frontend if Node is available
+  if has_cmd npm; then
+    if [[ ! -d node_modules ]]; then
+      if [[ -f package-lock.json ]]; then
+        log "Installing frontend deps (npm ci)"
+        npm ci >/dev/null 2>&1 || log "npm ci failed; attempting npm install"
+      fi
+      if [[ ! -d node_modules ]]; then
+        log "Installing frontend deps (npm install)"
+        npm install >/dev/null 2>&1 || log "npm install failed"
+      fi
+    fi
+    log "Building frontend (esbuild)"
+    if ! npm run --silent build >/dev/null 2>&1; then
+      log "Frontend build failed; attempting npx esbuild fallback"
+      if has_cmd npx; then
+        npx --yes esbuild app.jsx --bundle --outfile=dist/app.js --format=iife --target=es2017 --jsx=transform --jsx-factory=React.createElement --jsx-fragment=React.Fragment --minify >/dev/null 2>&1 || log "npx esbuild fallback failed"
+      else
+        log "npx not available; skipping frontend build"
+      fi
+    fi
+  else
+    log "npm not found; skipping frontend build (will use existing dist if present)"
+  fi
+
   log "Serving PWA on :$PWA_PORT"
   # Prefer Node http-server if available, else use Python http.server
   if has_cmd npx; then
     npx --yes http-server -p "$PWA_PORT" -c-1 >/dev/null 2>&1 &
+    PWA_PID=$!
   else
     "$PYTHON_BIN" -m http.server "$PWA_PORT" >/dev/null 2>&1 &
+    PWA_PID=$!
   fi
-  PWA_PID=$!
+  # Capture process group id for clean shutdown (some CLIs spawn child processes)
+  PWA_PGID=$(ps -o pgid= "$PWA_PID" | tr -d ' ' || echo "")
 }
 
 cleanup() {
   log "Shutting down dev servers..."
-  [[ -n "${BACK_PID:-}" ]] && kill "$BACK_PID" 2>/dev/null || true
-  [[ -n "${PWA_PID:-}" ]] && kill "$PWA_PID" 2>/dev/null || true
+  # Prefer killing process groups to catch child processes
+  if [[ -n "${BACK_PGID:-}" ]]; then
+    kill -TERM -"$BACK_PGID" 2>/dev/null || true
+  elif [[ -n "${BACK_PID:-}" ]]; then
+    kill -TERM "$BACK_PID" 2>/dev/null || true
+  fi
+
+  if [[ -n "${PWA_PGID:-}" ]]; then
+    kill -TERM -"$PWA_PGID" 2>/dev/null || true
+  elif [[ -n "${PWA_PID:-}" ]]; then
+    kill -TERM "$PWA_PID" 2>/dev/null || true
+  fi
+
+  # Give processes a moment to exit, then force kill leftovers
+  sleep 0.5
+  [[ -n "${BACK_PGID:-}" ]] && kill -KILL -"$BACK_PGID" 2>/dev/null || true
+  [[ -n "${BACK_PID:-}" ]] && kill -KILL "$BACK_PID" 2>/dev/null || true
+  [[ -n "${PWA_PGID:-}" ]] && kill -KILL -"$PWA_PGID" 2>/dev/null || true
+  [[ -n "${PWA_PID:-}" ]] && kill -KILL "$PWA_PID" 2>/dev/null || true
+
+  # Ensure the script exits promptly after trap
+  exit 0
 }
 
 trap cleanup EXIT INT TERM
@@ -137,4 +187,3 @@ log "PWA: http://localhost:$PWA_PORT/"
 
 # Keep script alive while background processes run
 wait
-

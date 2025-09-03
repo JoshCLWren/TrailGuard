@@ -5,12 +5,69 @@ let API_BASE = '/api';
 const DEMO_USER_ID = '11111111-1111-1111-1111-111111111111';
 let OPENAPI_SPEC = null; // populated at runtime from /api/openapi.json
 
+// --- Simple client-side outbox for offline writes ---
+const OUTBOX_KEY = 'tg_outbox';
+function getOutbox() {
+  try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); } catch (_) { return []; }
+}
+function setOutbox(items) { try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(items)); } catch (_) {} }
+function enqueueOutbox(item) { const q = getOutbox(); q.push(item); setOutbox(q); }
+async function drainOutbox() {
+  const q = getOutbox();
+  if (!q.length) return 0;
+  let sent = 0; const next = [];
+  for (const it of q) {
+    try {
+      const resp = await fetch(`${API_BASE}${it.path}`, { method: it.method, headers: it.headers || {}, body: it.body || undefined });
+      if (resp && resp.ok) { sent++; continue; }
+    } catch (e) {}
+    next.push(it); // keep for later
+  }
+  setOutbox(next);
+  return sent;
+}
+
+async function initApiBase() {
+  // If running on :8000 during dev.sh, assume API on :3000 to avoid a 404 probe
+  try {
+    const port = window.location.port;
+    const host = window.location.hostname;
+    if ((port === '8000') && (host === 'localhost' || host === '127.0.0.1')) {
+      API_BASE = 'http://localhost:3000';
+      return API_BASE;
+    }
+  } catch (e) {}
+
+  // Otherwise, try proxied path first (Docker/Nginx), then direct API URL
+  try {
+    const r1 = await fetch('/api/db', { credentials: 'omit' });
+    if (r1 && r1.ok) { API_BASE = '/api'; return API_BASE; }
+  } catch (e) {}
+  try {
+    const r2 = await fetch('http://localhost:3000/db', { mode: 'cors' });
+    if (r2 && r2.ok) { API_BASE = 'http://localhost:3000'; return API_BASE; }
+  } catch (e) {}
+  return API_BASE;
+}
+
 async function loadOpenApi() {
   try {
-    const resp = await fetch(`${API_BASE}/openapi.json`);
-    if (!resp.ok) throw new Error('spec fetch failed');
-    OPENAPI_SPEC = await resp.json();
-    Log.info('Loaded OpenAPI spec', OPENAPI_SPEC.info?.version || '');
+    let resp = await fetch(`${API_BASE}/openapi.json`);
+    if (!resp.ok) {
+      // Dev fallback when not behind Nginx proxy
+      try {
+        resp = await fetch(`http://localhost:3000/openapi.json`);
+        if (resp && resp.ok) {
+          API_BASE = 'http://localhost:3000';
+        }
+      } catch (e) {}
+    }
+    if (resp && resp.ok) {
+      OPENAPI_SPEC = await resp.json();
+      Log.info('Loaded OpenAPI spec', OPENAPI_SPEC.info?.version || '');
+      return;
+    }
+    throw new Error('spec fetch failed');
   } catch (e) {
     Log.warn('OpenAPI load failed', e);
   }
@@ -18,14 +75,25 @@ async function loadOpenApi() {
 
 async function apiRequest(path, options = {}) {
   const url = `${API_BASE}${path}`;
-  const resp = await fetch(url, options);
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+  try {
+    const resp = await fetch(url, options);
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    const ct = resp.headers.get('content-type') || '';
+    if (ct.includes('application/json')) return resp.json();
+    return resp.text();
+  } catch (e) {
+    const method = (options.method || 'GET').toUpperCase();
+    const isWrite = method === 'POST' || method === 'PATCH' || method === 'DELETE';
+    const offline = !navigator.onLine || (e && /Failed to fetch|NetworkError/i.test(String(e)));
+    if (isWrite && offline) {
+      enqueueOutbox({ path, method, headers: options.headers || {}, body: options.body || null, t: Date.now() });
+      throw new Error('Queued offline; will retry when online');
+    }
+    throw e;
   }
-  const ct = resp.headers.get('content-type') || '';
-  if (ct.includes('application/json')) return resp.json();
-  return resp.text();
 }
 
 const Log = {
@@ -44,6 +112,7 @@ let homeMap = null;
 let homeUserMarker = null;
 let homePathLine = null;
 let homeAccuracyCircle = null;
+let serverPathLine = null;
 
 function loadLeaflet() {
   if (typeof window.L !== 'undefined') return Promise.resolve();
@@ -117,14 +186,18 @@ function App() {
   });
 
   useEffect(() => {
-    // Attempt to load the API spec on boot to power small UI hints
-    loadOpenApi();
+    // Initialize API base, then fetch OpenAPI spec
+    (async () => {
+      await initApiBase();
+      await loadOpenApi();
+    })();
   }, []);
 
   useEffect(() => {
     const update = () => setState((s) => ({ ...s, connection: navigator.onLine ? 'Online' : 'Offline' }));
     window.addEventListener('online', update);
     window.addEventListener('offline', update);
+    window.addEventListener('online', () => { drainOutbox().then((n) => { if (n) Log.info(`Outbox drained: ${n}`); }); });
     return () => {
       window.removeEventListener('online', update);
       window.removeEventListener('offline', update);
@@ -159,11 +232,24 @@ function App() {
   );
 }
 
+function waitForEl(id, tries = 20) {
+  return new Promise((resolve, reject) => {
+    (function check(n) {
+      const el = document.getElementById(id);
+      if (el) return resolve(el);
+      if (n <= 0) return reject(new Error(`Element #${id} not found`));
+      requestAnimationFrame(() => check(n - 1));
+    })(tries);
+  });
+}
+
 function HomeView({ state, setState }) {
   useEffect(() => {
+    let alive = true;
     loadLeaflet().then(() => {
       ensureGeoWatch(setState);
-      const initHome = (center) => {
+      const initHome = async (center) => {
+        try { await waitForEl('home-map'); } catch (e) { return; }
         if (!homeMap) {
           homeMap = L.map('home-map', { zoomControl: false, attributionControl: false });
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -205,6 +291,7 @@ function HomeView({ state, setState }) {
         target.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:12px">Map failed to load. Check connection.</div>';
       }
     });
+    return () => { alive = false; };
   }, [state.breadcrumbs, setState]);
 
   return (
@@ -247,8 +334,11 @@ function HomeView({ state, setState }) {
 }
 
 function MapView({ state, setState }) {
+  const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
   useEffect(() => {
-    loadLeaflet().then(() => {
+    let alive = true;
+    loadLeaflet().then(async () => {
+      try { await waitForEl('map'); } catch (e) { return; }
       const initMap = (center) => {
         if (!map) {
           map = L.map('map');
@@ -270,22 +360,35 @@ function MapView({ state, setState }) {
         if (!userMarker) userMarker = L.marker(latlng, { title: 'You' }).addTo(map);
         else userMarker.setLatLng(latlng);
       };
+      const loadServerTrack = async () => {
+        try {
+          const devs = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices`);
+          const first = (devs.devices || [])[0];
+          if (!first) return;
+          const deviceId = (first.name || '').split('/').pop();
+          const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices/${deviceId}/breadcrumbs`);
+          const latlngs = (data.breadcrumbs || []).map(b => [b.position.latitude, b.position.longitude]);
+          if (!latlngs.length) return;
+          if (serverPathLine) serverPathLine.setLatLngs(latlngs);
+          else serverPathLine = L.polyline(latlngs, { color: '#0284c7' }).addTo(map);
+        } catch (e) { Log.warn('Load cloud track failed', e); }
+      };
       const startGeo = () => {
         if (!('geolocation' in navigator)) {
-          document.getElementById('crumbcount').textContent = 'Geolocation not supported';
+          setText('crumbcount', 'Geolocation not supported');
           initMap([0, 0]);
           return;
         }
-        document.getElementById('crumbcount').textContent = 'Locating…';
+        setText('crumbcount', 'Locating…');
         navigator.geolocation.getCurrentPosition((pos) => {
           lastPosition = pos;
           initMap([pos.coords.latitude, pos.coords.longitude]);
           upsertUserMarker(pos);
-          document.getElementById('crumbcount').textContent = `${state.breadcrumbs.length} points saved`;
+          setText('crumbcount', `${state.breadcrumbs.length} points saved`);
         }, (err) => {
-          document.getElementById('crumbcount').textContent = `Location error: ${err.code}`;
+          setText('crumbcount', `Location error: ${err.code}`);
           initMap([0, 0]);
-        }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 });
+        }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
         if (geoWatchId) navigator.geolocation.clearWatch(geoWatchId);
         geoWatchId = navigator.geolocation.watchPosition((pos) => {
           lastPosition = pos;
@@ -296,7 +399,17 @@ function MapView({ state, setState }) {
         });
       };
       startGeo();
+      // Attempt to load server breadcrumbs once map is ready
+      loadServerTrack();
     });
+    return () => {
+      alive = false;
+      // Clean up map instances when leaving the view
+      try { if (map) { map.remove(); } } catch (e) {}
+      map = null; userMarker = null; pathLine = null; serverPathLine = null;
+      if (geoWatchId) { try { navigator.geolocation.clearWatch(geoWatchId); } catch (e) {} }
+      geoWatchId = null;
+    };
   }, [state.breadcrumbs]);
 
   const dropBreadcrumb = () => {
@@ -317,9 +430,9 @@ function MapView({ state, setState }) {
         pathLine = L.polyline([[pt.lat, pt.lng]], { color: '#10b981' }).addTo(map);
       }
       if (map) L.circleMarker([pt.lat, pt.lng], { radius: 4, color: '#10b981' }).addTo(map);
-      document.getElementById('crumbcount').textContent = `${state.breadcrumbs.length + 1} points saved`;
+      const el = document.getElementById('crumbcount'); if (el) el.textContent = `${state.breadcrumbs.length + 1} points saved`;
     } else {
-      document.getElementById('crumbcount').textContent = 'No position yet; trying again…';
+      const el = document.getElementById('crumbcount'); if (el) el.textContent = 'No position yet; trying again…';
     }
   };
 
@@ -330,6 +443,41 @@ function MapView({ state, setState }) {
         <div className="row">
           <button className="btn btn-outline" id="drop" onClick={dropBreadcrumb}>Drop Waypoint</button>
           <label className="toggle"><input type="checkbox" id="follow" defaultChecked /> Follow</label>
+          <button className="btn btn-outline" onClick={async () => {
+            try {
+              // Pick first device for now
+              const devices = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices`);
+              const first = (devices.devices || [])[0];
+              if (!first) { alert('No paired devices'); return; }
+              const deviceId = (first.name || '').split('/').pop();
+              const payload = {
+                breadcrumbs: (state.breadcrumbs || []).filter(p => p.lat && p.lng).map(p => ({ position: { latitude: p.lat, longitude: p.lng } }))
+              };
+              if (payload.breadcrumbs.length === 0) { alert('No local waypoints to sync'); return; }
+              await apiRequest(`/v1/users/${DEMO_USER_ID}/devices/${deviceId}/breadcrumbs:batchCreate`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              alert('Waypoints synced');
+            } catch (e) {
+              alert('Sync failed: ' + e.message);
+            }
+          }}>Sync to Cloud</button>
+          <button className="btn btn-outline" onClick={async () => {
+            // Reload server track
+            try {
+              const devs = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices`);
+              const first = (devs.devices || [])[0];
+              if (!first) { alert('No paired devices'); return; }
+              const deviceId = (first.name || '').split('/').pop();
+              const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices/${deviceId}/breadcrumbs`);
+              const latlngs = (data.breadcrumbs || []).map(b => [b.position.latitude, b.position.longitude]);
+              if (!latlngs.length) { alert('No cloud track yet'); return; }
+              if (serverPathLine) serverPathLine.setLatLngs(latlngs); else serverPathLine = L.polyline(latlngs, { color: '#0284c7' }).addTo(map);
+              alert(`Loaded ${latlngs.length} cloud waypoints`);
+            } catch (e) { alert('Load failed: ' + e.message); }
+          }}>Load Cloud</button>
         </div>
         <span className="small" id="crumbcount"></span>
       </div>
@@ -408,17 +556,43 @@ function CheckinView() {
 }
 
 function FamilyView({ state, setState }) {
-  const remove = (i) => {
-    setState((s) => {
-      const copy = { ...s, family: s.family.filter((_, idx) => idx !== i) };
-      return copy;
-    });
+  const [loading, setLoading] = React.useState(false);
+  const load = async () => {
+    try {
+      const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/familyMembers`);
+      const list = (data.familyMembers || []).map(m => ({ name: m.displayName, status: m.status || 'Active', last: m.lastSeenTime ? new Date(m.lastSeenTime).toLocaleString() : '' , _name: m.name }));
+      setState(s => ({ ...s, family: list }));
+    } catch (e) {
+      Log.warn('Family load failed', e);
+    }
   };
-  const add = () => {
+  useEffect(() => { load(); }, []);
+
+  const remove = async (i) => {
+    try {
+      const m = state.family[i];
+      const memberId = (m._name || '').split('/').pop();
+      if (!memberId) return;
+      await apiRequest(`/v1/users/${DEMO_USER_ID}/familyMembers/${memberId}`, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      alert('Remove failed: ' + e.message);
+    }
+  };
+  const add = async () => {
     const v = document.getElementById('newname').value.trim();
     if (!v) return;
-    setState((s) => ({ ...s, family: [...s.family, { name: v, status: 'Active', last: 'now' }] }));
-    document.getElementById('newname').value = '';
+    try {
+      await apiRequest(`/v1/users/${DEMO_USER_ID}/familyMembers`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ displayName: v })
+      });
+      document.getElementById('newname').value = '';
+      await load();
+    } catch (e) {
+      alert('Add failed: ' + e.message);
+    }
   };
   return (
     <div className="card">
@@ -439,6 +613,25 @@ function FamilyView({ state, setState }) {
 }
 
 function SettingsView() {
+  const [devices, setDevices] = React.useState([]);
+  const [settings, setSettings] = React.useState(null);
+  const [outboxCount, setOutboxCount] = React.useState(getOutbox().length);
+  const loadDevices = async () => {
+    try {
+      const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices`);
+      setDevices(data.devices || []);
+    } catch (e) {
+      Log.warn('Load devices failed', e);
+    }
+  };
+  const loadSettings = async () => {
+    try {
+      const s = await apiRequest(`/v1/users/${DEMO_USER_ID}/settings`);
+      setSettings(s);
+      const auto = document.getElementById('auto'); if (auto) auto.checked = !!s.autoAlerts;
+      const notify = document.getElementById('notify'); if (notify) notify.checked = !!s.notifyContacts;
+    } catch (e) { Log.warn('Load settings failed', e); }
+  };
   useEffect(() => {
     const dark = document.getElementById('dark');
     const handler = (e) => {
@@ -446,6 +639,9 @@ function SettingsView() {
       document.body.style.color = e.target.checked ? '#e5e7eb' : '#0f172a';
     };
     dark.addEventListener('change', handler);
+    loadDevices();
+    loadSettings();
+    const i = setInterval(() => setOutboxCount(getOutbox().length), 2000);
     return () => dark.removeEventListener('change', handler);
   }, []);
   return (
@@ -454,19 +650,141 @@ function SettingsView() {
         <label>Dark Mode</label>
         <input type="checkbox" id="dark" />
       </div>
-      <div className="row"><button className="btn btn-outline" onClick={() => alert('Mock: Pairing mode')}>Pair New Device</button></div>
-      <div className="row"><button className="btn btn-outline" onClick={() => alert('Mock: Auto-alerts settings')}>Set Auto-Alerts</button></div>
-      <div className="row"><button className="btn btn-outline" onClick={() => alert('Mock: Firmware up to date')}>Check Firmware Updates</button></div>
+      <div className="row toggle">
+        <label>Auto Alerts</label>
+        <input type="checkbox" id="auto" onChange={async (e) => {
+          try {
+            await apiRequest(`/v1/users/${DEMO_USER_ID}/settings?updateMask=autoAlerts`, {
+              method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ autoAlerts: e.target.checked })
+            });
+          } catch (err) { alert('Save failed: ' + err.message); }
+        }} />
+      </div>
+      <div className="row toggle">
+        <label>Notify Contacts</label>
+        <input type="checkbox" id="notify" onChange={async (e) => {
+          try {
+            await apiRequest(`/v1/users/${DEMO_USER_ID}/settings?updateMask=notifyContacts`, {
+              method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notifyContacts: e.target.checked })
+            });
+          } catch (err) { alert('Save failed: ' + err.message); }
+        }} />
+      </div>
+      <div className="row"><button className="btn btn-outline" onClick={async () => {
+        const code = prompt('Enter pairing code');
+        if (!code) return;
+        try {
+          await apiRequest(`/v1/users/${DEMO_USER_ID}/devices`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ pairingCode: code })
+          });
+          await loadDevices();
+          alert('Device paired');
+        } catch (e) {
+          alert('Pairing failed: ' + e.message);
+        }
+      }}>Pair New Device</button></div>
+      <div className="row"><button className="btn btn-outline" onClick={() => alert('Auto-alerts settings coming soon')}>Set Auto-Alerts</button></div>
+      <div className="row"><button className="btn btn-outline" onClick={async () => {
+        if (!devices.length) { alert('No devices to check'); return; }
+        try {
+          const name = devices[0].name || '';
+          const deviceId = name.split('/').pop();
+          const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/devices/${deviceId}:checkFirmware`);
+          alert(`Current ${data.currentVersion}, Latest ${data.latestVersion}${data.updateAvailable ? ' — Update available' : ''}`);
+        } catch (e) {
+          alert('Firmware check failed: ' + e.message);
+        }
+      }}>Check Firmware Updates</button></div>
+      <div className="row"><button className="btn btn-outline" onClick={async () => {
+        try {
+          const n = await drainOutbox();
+          alert(n ? `Synced ${n} pending requests` : 'No pending requests');
+          setOutboxCount(getOutbox().length);
+        } catch (e) { alert('Sync failed: ' + e.message); }
+      }}>Sync Pending ({outboxCount})</button></div>
+      <div style={{ marginTop: '12px' }}>
+        <strong>My Devices</strong>
+        <ul className="list small" style={{ marginTop: '8px' }}>
+          {devices.length === 0 ? <li>No devices paired</li> : null}
+          {devices.map((d, i) => (
+            <li key={i}>
+              <span>
+                {d.name.split('/').pop()}
+                {d.firmwareVersion ? ` — FW ${d.firmwareVersion}` : ''}
+              </span>
+              <span style={{ color: '#64748b' }}>
+                {d.connectionState || 'OFFLINE'}{typeof d.batteryPercent === 'number' ? ` · ${d.batteryPercent}%` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
 
 function SosView() {
+  const [status, setStatus] = React.useState({ active: false, startTime: null, cancelTime: null, lastKnownLocation: null });
+  const [loading, setLoading] = React.useState(false);
+
+  const fetchStatus = async () => {
+    try {
+      const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/sos`);
+      setStatus(data);
+    } catch (e) {
+      Log.warn('SOS status failed', e);
+    }
+  };
+  useEffect(() => { fetchStatus(); }, []);
+
+  const activate = async () => {
+    setLoading(true);
+    try {
+      const body = {};
+      if (lastPosition) {
+        body.location = {
+          lat: lastPosition.coords.latitude,
+          lng: lastPosition.coords.longitude,
+          accuracyMeters: Number(lastPosition.coords.accuracy || 0)
+        };
+      }
+      const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/sos:activate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      setStatus(data);
+    } catch (e) {
+      alert('Failed to activate SOS: ' + e.message);
+    } finally { setLoading(false); }
+  };
+  const cancel = async () => {
+    setLoading(true);
+    try {
+      const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/sos:cancel`, { method: 'POST' });
+      setStatus(data);
+      location.hash = '#/home';
+    } catch (e) {
+      alert('Failed to cancel SOS: ' + e.message);
+    } finally { setLoading(false); }
+  };
+
   return (
     <div className="card" style={{ textAlign: 'center' }}>
       <h2 style={{ color: '#ef4444' }}>Emergency Mode</h2>
-      <p>SOS Activated. Location shared with contacts + 911 (mock).</p>
-      <button className="btn btn-danger" onClick={() => { alert('SOS canceled (mock)'); location.hash = '#/home'; }}>Cancel SOS</button>
+      {status.active ? (
+        <>
+          <p>SOS is active. Your location is being shared.</p>
+          <button className="btn btn-danger" disabled={loading} onClick={cancel}>Cancel SOS</button>
+        </>
+      ) : (
+        <>
+          <p>SOS is not active. Activate to share your location with contacts.</p>
+          <button className="btn btn-primary" disabled={loading} onClick={activate}>Activate SOS</button>
+        </>
+      )}
     </div>
   );
 }

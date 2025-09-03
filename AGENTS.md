@@ -1,16 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root contains a static PWA: `index.html`, `styles.css`, `app.jsx`, `service-worker.js`, `manifest.json`, and `icon-*.png` assets.
-- `index.html`: boots the app, loads `styles.css`/`app.jsx`, registers the service worker.
-- `app.jsx`: React-based routing, state, and UI handlers; persists breadcrumbs in `localStorage` under `tg_breadcrumbs`.
-- `service-worker.js`: caches app shell (`tg-cache-v4`) for offline use. Bump the cache name when changing cached assets.
+- Root contains the PWA: `index.html`, `styles.css`, React app source `app.jsx`, built bundle under `dist/`, `service-worker.js`, `manifest.json`, and `icon-*.png` assets.
+- `index.html`: boots the app, loads `styles.css`/`dist/app.js`, registers the service worker.
+- `app.jsx`: React-based routing, state, and UI handlers; persists breadcrumbs in `localStorage` under `tg_breadcrumbs`. Integrates with the backend (`/api/...` or `http://localhost:3000/...`) and reads the OpenAPI spec.
+- `service-worker.js`: caches app shell (`tg-cache-v5`) for offline use. Bump the cache name when changing cached assets.
 
-## Build, Test, and Development Commands
-- Run locally (no build step):
-  - Python: `python -m http.server 8000` then open `http://localhost:8000/`.
-  - Node (optional): `npx http-server -p 8000`.
-- Reload to test service worker updates; after cache changes, hard refresh or unregister/reload.
+## Build, Test, and Development
+- See `DEV.md` for step‑by‑step local and Docker workflows, build commands, and troubleshooting.
 
 ## Coding Style & Naming Conventions
 - JavaScript: 2-space indent, semicolons, single quotes. `camelCase` for variables/functions, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants.
@@ -40,9 +37,16 @@
   - `{ "url": "postgresql+psycopg2://postgres:***@localhost/trailguard", "backend": "postgresql", "driver": "psycopg2", "ok": true, "error": null }`
 - Run locally:
   - `uvicorn trailguard_api.main:app --reload --port 3000`
-  - Open `http://localhost:3000/db` to verify DB connectivity (defaults to `DATABASE_URL` or in-memory SQLite for tests).
+  - Open `http://localhost:3000/db` to verify DB connectivity.
 - Configuration:
   - `DATABASE_URL` (optional): SQLAlchemy URL. Default is `postgresql+psycopg2://postgres:postgres@localhost/trailguard`.
-  - Migrations: On startup, `init_db()` applies `migrations/001_init.sql` when using PostgreSQL.
+  - Migrations: On startup, `init_db()` applies `migrations/001_init.sql` when using PostgreSQL and seeds a demo user (`11111111-1111-1111-1111-111111111111`) for quick UI testing.
+  - CORS: Enabled for `http://localhost:8000` to support dev without a reverse proxy.
 - Security:
   - Do not expose `/db` publicly; restrict to local/dev environments. It reveals connection metadata (passwords are masked).
+
+## Docker & Proxying
+- `docker-compose.yml` orchestrates `db`, `api`, and `web` services; see `DEV.md` for details.
+
+## Frontend ↔ Backend Integration
+- The UI calls the backend using the OpenAPI spec; see `DEV.md` for how `API_BASE` is selected in dev and Docker.

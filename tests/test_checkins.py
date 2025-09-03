@@ -4,9 +4,9 @@ os.environ['DATABASE_URL'] = 'sqlite+pysqlite:///:memory:'
 
 from fastapi.testclient import TestClient
 
-from api.main import app
-from api import models
-from api.database import Base, engine, SessionLocal
+from trailguard_api.main import app
+from trailguard_api import models
+from trailguard_api.database import Base, engine, SessionLocal
 
 Base.metadata.create_all(bind=engine)
 client = TestClient(app)

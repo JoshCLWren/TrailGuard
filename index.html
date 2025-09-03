@@ -11,28 +11,14 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 </head>
 <body>
-  <div id="app">
-    <header class="app-header">
-      <h1>TrailGuard</h1>
-      <span id="status-badge" class="badge">Offline</span>
-    </header>
+  <div id="root"></div>
 
-    <main id="view"></main>
-
-    <nav class="tabbar">
-      <button data-route="#/home" class="tab active">Home</button>
-      <button data-route="#/map" class="tab">Map</button>
-      <button data-route="#/checkin" class="tab">Check-In</button>
-      <button data-route="#/family" class="tab">Family</button>
-      <button data-route="#/settings" class="tab">Settings</button>
-    </nav>
-  </div>
-
-  <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel" src="app.jsx"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {

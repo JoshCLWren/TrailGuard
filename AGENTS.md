@@ -33,3 +33,16 @@
 - Service worker: avoid caching sensitive endpoints; prefer cache-first for static assets, network-first where freshness matters.
 - PWA: verify installability (manifest + icons) and test offline behavior after updates.
 
+## Backend API (/db)
+- Overview: A lightweight FastAPI app lives under `trailguard_api/` with an internal diagnostic endpoint at `GET /db`.
+- Purpose: Dev-only database health and configuration check; returns masked DB URL, backend/driver, and connectivity status.
+- Example response:
+  - `{ "url": "postgresql+psycopg2://postgres:***@localhost/trailguard", "backend": "postgresql", "driver": "psycopg2", "ok": true, "error": null }`
+- Run locally:
+  - `uvicorn trailguard_api.main:app --reload --port 3000`
+  - Open `http://localhost:3000/db` to verify DB connectivity (defaults to `DATABASE_URL` or in-memory SQLite for tests).
+- Configuration:
+  - `DATABASE_URL` (optional): SQLAlchemy URL. Default is `postgresql+psycopg2://postgres:postgres@localhost/trailguard`.
+  - Migrations: On startup, `init_db()` applies `migrations/001_init.sql` when using PostgreSQL.
+- Security:
+  - Do not expose `/db` publicly; restrict to local/dev environments. It reveals connection metadata (passwords are masked).

@@ -1,5 +1,33 @@
 const { useState, useEffect } = React;
 
+// Backend integration (uses OpenAPI spec to enrich UI)
+let API_BASE = '/api';
+const DEMO_USER_ID = '11111111-1111-1111-1111-111111111111';
+let OPENAPI_SPEC = null; // populated at runtime from /api/openapi.json
+
+async function loadOpenApi() {
+  try {
+    const resp = await fetch(`${API_BASE}/openapi.json`);
+    if (!resp.ok) throw new Error('spec fetch failed');
+    OPENAPI_SPEC = await resp.json();
+    Log.info('Loaded OpenAPI spec', OPENAPI_SPEC.info?.version || '');
+  } catch (e) {
+    Log.warn('OpenAPI load failed', e);
+  }
+}
+
+async function apiRequest(path, options = {}) {
+  const url = `${API_BASE}${path}`;
+  const resp = await fetch(url, options);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+  }
+  const ct = resp.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return resp.json();
+  return resp.text();
+}
+
 const Log = {
   info: (...a) => console.info('[TrailGuard]', ...a),
   warn: (...a) => console.warn('[TrailGuard]', ...a),
@@ -89,6 +117,11 @@ function App() {
   });
 
   useEffect(() => {
+    // Attempt to load the API spec on boot to power small UI hints
+    loadOpenApi();
+  }, []);
+
+  useEffect(() => {
     const update = () => setState((s) => ({ ...s, connection: navigator.onLine ? 'Online' : 'Offline' }));
     window.addEventListener('online', update);
     window.addEventListener('offline', update);
@@ -112,6 +145,9 @@ function App() {
         {route === '#/settings' && <SettingsView />}
         {route === '#/sos' && <SosView />}
       </main>
+      <footer className="small" style={{ textAlign: 'center', color: '#94a3b8', padding: '8px' }}>
+        API {OPENAPI_SPEC?.info?.title || 'TrailGuard'} v{OPENAPI_SPEC?.info?.version || 'unknown'}
+      </footer>
       <nav className="tabbar">
         <button data-route="#/home" className={route === '#/home' ? 'tab active' : 'tab'} onClick={() => location.hash = '#/home'}>Home</button>
         <button data-route="#/map" className={route === '#/map' ? 'tab active' : 'tab'} onClick={() => location.hash = '#/map'}>Map</button>
@@ -180,8 +216,22 @@ function HomeView({ state, setState }) {
         <div>Family Connected</div><div>{state.family.length}</div>
       </div>
       <div className="card">
-        <button className="btn btn-primary" onClick={() => alert("Check-in sent: I'm OK")}>I'm OK</button>
-        <button className="btn btn-outline" style={{ marginLeft: '8px' }} onClick={() => alert('Check-in sent: Delayed')}>Delayed</button>
+        <button className="btn btn-primary" onClick={async () => {
+          try {
+            await sendCheckIn('ok', "I'm OK");
+            alert("Check-in sent: I'm OK");
+          } catch (e) {
+            alert('Failed to send: ' + e.message);
+          }
+        }}>I'm OK</button>
+        <button className="btn btn-outline" style={{ marginLeft: '8px' }} onClick={async () => {
+          try {
+            await sendCheckIn('delayed', 'Delayed');
+            alert('Check-in sent: Delayed');
+          } catch (e) {
+            alert('Failed to send: ' + e.message);
+          }
+        }}>Delayed</button>
       </div>
       <div className="card">
         <div className="map-mini"><div id="home-map"></div></div>
@@ -287,8 +337,43 @@ function MapView({ state, setState }) {
   );
 }
 
+async function sendCheckIn(type, message) {
+  const body = { checkIn: { type, message } };
+  if (lastPosition) {
+    body.checkIn.location = {
+      lat: lastPosition.coords.latitude,
+      lng: lastPosition.coords.longitude,
+      accuracyMeters: Number(lastPosition.coords.accuracy || 0)
+    };
+  }
+  await apiRequest(`/v1/users/${DEMO_USER_ID}/checkIns`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
 function CheckinView() {
-  const sendMsg = (text) => alert('Sent: ' + text);
+  const [items, setItems] = useState([]);
+  const sendMsg = async (text) => {
+    try {
+      await sendCheckIn('custom', text);
+      await loadList();
+      alert('Sent: ' + text);
+    } catch (e) {
+      alert('Failed: ' + e.message);
+    }
+  };
+  const loadList = async () => {
+    try {
+      const data = await apiRequest(`/v1/users/${DEMO_USER_ID}/checkIns`);
+      setItems(data.checkIns || []);
+    } catch (e) {
+      // soft-fail; keep UI usable offline
+      Log.warn('Load check-ins failed', e);
+    }
+  };
+  useEffect(() => { loadList(); }, []);
   return (
     <div>
       <div className="card">
@@ -297,10 +382,26 @@ function CheckinView() {
         <button className="btn btn-outline" style={{ marginLeft: '8px' }} onClick={() => sendMsg('Delayed')}>Delayed</button>
       </div>
       <div className="card">
-        <input className="input" id="msg" placeholder="Type message (mock only)" />
+        <input className="input" id="msg" placeholder="Type message" />
         <div style={{ marginTop: '8px' }}>
           <button className="btn btn-primary" onClick={() => sendMsg(document.getElementById('msg').value || '(empty)')}>Send</button>
         </div>
+      </div>
+      <div className="card">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <strong>Recent Check-ins</strong>
+          <button className="btn btn-outline btn-sm" onClick={() => loadList()}>Refresh</button>
+        </div>
+        <ul className="list small">
+          {items.length === 0 ? <li>No check-ins yet</li> : null}
+          {items.map((it, i) => (
+            <li key={i}>
+              <span>{it.type.toUpperCase()}</span>
+              {it.message ? <span style={{ marginLeft: '6px', color: '#64748b' }}>— {it.message}</span> : null}
+              <span style={{ float: 'right', color: '#94a3b8' }}>{new Date(it.create_time).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
@@ -381,4 +482,3 @@ function useHashRoute() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-

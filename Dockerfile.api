@@ -1,0 +1,25 @@
+FROM python:3.11-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# System deps (optional but common for psycopg2-binary stability)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY trailguard_api /app/trailguard_api
+COPY migrations /app/migrations
+COPY openapi.yaml /app/openapi.yaml
+
+ENV DATABASE_URL=postgresql+psycopg2://postgres:postgres@db/trailguard
+
+EXPOSE 3000
+
+CMD ["uvicorn", "trailguard_api.main:app", "--host", "0.0.0.0", "--port", "3000"]
+

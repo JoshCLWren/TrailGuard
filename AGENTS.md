@@ -1,10 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root contains a static PWA: `index.html`, `styles.css`, `app.js`, `service-worker.js`, `manifest.json`, and `icon-*.png` assets.
-- `index.html`: boots the app, loads `styles.css`/`app.js`, registers the service worker.
-- `app.js`: hash-based routing, simple state, and UI handlers; persists breadcrumbs in `localStorage` under `tg_breadcrumbs`.
-- `service-worker.js`: caches app shell (`tg-cache-v1`) for offline use. Bump the cache name when changing cached assets.
+- Root contains a static PWA: `index.html`, `styles.css`, `app.jsx`, `service-worker.js`, `manifest.json`, and `icon-*.png` assets.
+- `index.html`: boots the app, loads `styles.css`/`app.jsx`, registers the service worker.
+- `app.jsx`: React-based routing, state, and UI handlers; persists breadcrumbs in `localStorage` under `tg_breadcrumbs`.
+- `service-worker.js`: caches app shell (`tg-cache-v4`) for offline use. Bump the cache name when changing cached assets.
 
 ## Build, Test, and Development Commands
 - Run locally (no build step):
@@ -14,7 +14,7 @@
 
 ## Coding Style & Naming Conventions
 - JavaScript: 2-space indent, semicolons, single quotes. `camelCase` for variables/functions, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants.
-- HTML: use semantic tags; keep inline scripts minimal (logic lives in `app.js`).
+- HTML: use semantic tags; keep inline scripts minimal (logic lives in `app.jsx`).
 - CSS: 2-space indent; prefer utility-like, readable class names (BEM-style acceptable). Keep styles cohesive in `styles.css`.
 - Filenames: lowercase with hyphens (`service-worker.js`, `manifest.json`).
 

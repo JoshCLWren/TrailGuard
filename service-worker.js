@@ -3,11 +3,14 @@ self.addEventListener('install', (e) => {
   // Activate updated SW immediately
   self.skipWaiting();
   e.waitUntil(
-    caches.open('tg-cache-v3').then((cache) => cache.addAll([
-      './', './index.html', './styles.css', './app.js', './manifest.json',
-      './icon-72.png','./icon-96.png','./icon-128.png','./icon-144.png','./icon-152.png','./icon-180.png','./icon-192.png','./icon-256.png','./icon-384.png','./icon-512.png'
-      , './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
-      './vendor/leaflet/images/marker-icon.png', './vendor/leaflet/images/marker-icon-2x.png', './vendor/leaflet/images/marker-shadow.png'
+    caches.open('tg-cache-v4').then((cache) => cache.addAll([
+      './', './index.html', './styles.css', './app.jsx', './manifest.json',
+      './icon-72.png','./icon-96.png','./icon-128.png','./icon-144.png','./icon-152.png','./icon-180.png','./icon-192.png','./icon-256.png','./icon-384.png','./icon-512.png',
+      './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
+      './vendor/leaflet/images/marker-icon.png', './vendor/leaflet/images/marker-icon-2x.png', './vendor/leaflet/images/marker-shadow.png',
+      'https://unpkg.com/react@18/umd/react.production.min.js',
+      'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+      'https://unpkg.com/@babel/standalone/babel.min.js'
     ]))
   );
 });
@@ -17,7 +20,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
       keys
-        .filter((k) => k.startsWith('tg-') && k !== 'tg-cache-v3' && k !== 'tg-tiles-v1')
+        .filter((k) => k.startsWith('tg-') && k !== 'tg-cache-v4' && k !== 'tg-tiles-v1')
         .map((k) => caches.delete(k))
     )).then(() => self.clients.claim())
   );
@@ -38,7 +41,7 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request).then((resp) => {
         // Optionally update cache with fresh index
         const copy = resp.clone();
-        caches.open('tg-cache-v3').then((c) => c.put('./', copy).catch(() => {}));
+        caches.open('tg-cache-v4').then((c) => c.put('./', copy).catch(() => {}));
         return resp;
       }).catch((err) => {
         console.warn('[TrailGuard][SW] Navigate fetch failed, using cache', err);

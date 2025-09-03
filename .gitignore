@@ -37,3 +37,11 @@ Desktop.ini
 # Windows Zone.Identifier alternate stream copies
 *:Zone.Identifier
 
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.python-version
+.pytest_cache/

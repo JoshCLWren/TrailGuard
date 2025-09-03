@@ -1,0 +1,11 @@
+FROM node:18-alpine
+
+WORKDIR /app
+RUN npm install -g http-server
+
+COPY index.html styles.css app.js service-worker.js manifest.json ./
+COPY icon-*.png ./
+COPY vendor ./vendor
+
+EXPOSE 3000
+CMD ["http-server", "-p", "3000"]

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>TrailGuard</title>
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TrailGuard">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>TrailGuard</h1>
+      <span id="status-badge" class="badge">Offline</span>
+    </header>
+
+    <main id="view"></main>
+
+    <nav class="tabbar">
+      <button data-route="#/home" class="tab active">Home</button>
+      <button data-route="#/map" class="tab">Map</button>
+      <button data-route="#/checkin" class="tab">Check-In</button>
+      <button data-route="#/family" class="tab">Family</button>
+      <button data-route="#/settings" class="tab">Settings</button>
+    </nav>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js');
+      });
+    }
+  </script>
+</body>
+</html>

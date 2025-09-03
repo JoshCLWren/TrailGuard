@@ -1,0 +1,21 @@
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;color:#0f172a}
+.app-header{position:sticky;top:0;background:#0f172a;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+.badge{background:#10b981;color:#052e16;padding:4px 8px;border-radius:999px;font-size:12px}
+main{padding:16px 16px 80px}
+.card{background:#fff;border-radius:16px;box-shadow:0 4px 14px rgba(2,6,23,.07);padding:16px;margin-bottom:12px}
+.row{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
+.btn{display:inline-block;border:none;border-radius:14px;padding:12px 16px;font-weight:600}
+.btn-primary{background:#10b981;color:#052e16}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-outline{background:#fff;border:1px solid #cbd5e1;color:#0f172a}
+.input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:12px}
+.tabbar{position:fixed;left:0;right:0;bottom:0;height:64px;background:#ffffffee;backdrop-filter:saturate(180%) blur(8px);display:flex;border-top:1px solid #e2e8f0}
+.tab{flex:1;background:transparent;border:none;font-weight:600}
+.tab.active{color:#10b981}
+.list{list-style:none;padding:0;margin:0}
+.list li{display:flex;align-items:center;justify-content:space-between;padding:12px 8px;border-bottom:1px solid #e2e8f0}
+.kv{display:grid;grid-template-columns:1fr auto;gap:8px}
+.mapbox{height:220px;border-radius:16px;background:repeating-linear-gradient(45deg,#e5e7eb,#e5e7eb 10px,#f8fafc 10px,#f8fafc 20px);display:flex;align-items:center;justify-content:center;color:#6b7280}
+.sos{position:fixed;right:16px;bottom:80px;width:64px;height:64px;border-radius:50%;background:#ef4444;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;box-shadow:0 10px 25px rgba(239,68,68,.35)}
+.small{font-size:12px;color:#64748b}
+.toggle{display:inline-flex;align-items:center;gap:8px}

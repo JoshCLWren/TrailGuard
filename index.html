@@ -11,6 +11,7 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 </head>
 <body>
   <div id="app">
@@ -30,11 +31,39 @@
     </nav>
   </div>
 
+  <script src="vendor/leaflet/leaflet.js"></script>
   <script src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js');
+        console.info('[TrailGuard] Registering service worker…');
+        navigator.serviceWorker.register('./service-worker.js').then((reg) => {
+          console.info('[TrailGuard] SW registered', reg.scope);
+          // Reload when a new SW takes control
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            console.info('[TrailGuard] SW controller changed; reloading');
+            window.location.reload();
+          });
+
+          // If there is a waiting SW, ask it to activate
+          if (reg.waiting) {
+            console.info('[TrailGuard] SW waiting; sending SKIP_WAITING');
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+
+          // If a new SW is installing, request activation when installed
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (!sw) return;
+            console.info('[TrailGuard] SW update found');
+            sw.addEventListener('statechange', () => {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                console.info('[TrailGuard] SW installed; requesting activation');
+                sw.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          });
+        }).catch((err) => console.error('[TrailGuard] SW registration failed', err));
       });
     }
   </script>

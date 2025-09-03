@@ -16,6 +16,12 @@ main{padding:16px 16px 80px}
 .list li{display:flex;align-items:center;justify-content:space-between;padding:12px 8px;border-bottom:1px solid #e2e8f0}
 .kv{display:grid;grid-template-columns:1fr auto;gap:8px}
 .mapbox{height:220px;border-radius:16px;background:repeating-linear-gradient(45deg,#e5e7eb,#e5e7eb 10px,#f8fafc 10px,#f8fafc 20px);display:flex;align-items:center;justify-content:center;color:#6b7280}
+.map-container{height:320px;border-radius:16px;overflow:hidden}
+#map{height:100%;width:100%}
+.map-mini{height:220px;border-radius:16px;overflow:hidden}
+#home-map{height:100%;width:100%}
+.mini-controls{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:12px;color:#64748b}
+.btn-sm{padding:8px 12px;font-size:12px;border-radius:10px}
 .sos{position:fixed;right:16px;bottom:80px;width:64px;height:64px;border-radius:50%;background:#ef4444;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;box-shadow:0 10px 25px rgba(239,68,68,.35)}
 .small{font-size:12px;color:#64748b}
 .toggle{display:inline-flex;align-items:center;gap:8px}

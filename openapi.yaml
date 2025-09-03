@@ -1,0 +1,658 @@
+openapi: 3.0.3
+info:
+  title: TrailGuard API
+  version: 0.2.0
+  description: |
+    Resource-oriented, versioned API following the Google API Design Guide.
+    Paths are nouns, versioned under `/v1`, use hierarchical parents, standard
+    list pagination (`pageSize`, `pageToken`), filtering via `filter`, PATCH with
+    `updateMask`, and custom actions with the `:verb` suffix where needed.
+
+servers:
+  - url: https://api.example.com
+    description: Production (placeholder)
+  - url: http://localhost:3000
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Users
+  - name: CheckIns
+  - name: SOS
+  - name: Devices
+  - name: Breadcrumbs
+  - name: Family
+  - name: Settings
+  - name: Messages
+
+paths:
+  /v1/users/{userId}/checkIns:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+        description: User identifier.
+    get:
+      tags: [CheckIns]
+      summary: List check-ins
+      parameters:
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: pageToken
+          schema: { type: string }
+        - in: query
+          name: filter
+          schema: { type: string }
+          description: Filter expression, e.g. createTime>"2025-01-01T00:00:00Z"
+        - in: query
+          name: orderBy
+          schema: { type: string }
+          description: 'Fields to order by, e.g. createTime desc'
+      responses:
+        '200':
+          description: List of check-ins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkIns:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CheckIn'
+                  nextPageToken: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [CheckIns]
+      summary: Create a check-in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                checkIn:
+                  $ref: '#/components/schemas/CheckIn'
+              required: [checkIn]
+      responses:
+        '201':
+          description: Check-in created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/sos:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [SOS]
+      summary: Get current SOS status
+      responses:
+        '200':
+          description: SOS status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SOSStatus'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/users/{userId}/sos:activate:
+    post:
+      tags: [SOS]
+      summary: Activate SOS mode
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SOSActivateRequest'
+      responses:
+        '200':
+          description: SOS status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SOSStatus'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/users/{userId}/sos:cancel:
+    post:
+      tags: [SOS]
+      summary: Cancel SOS mode
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: SOS status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SOSStatus'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/devices:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Devices]
+      summary: List devices
+      parameters:
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: pageToken
+          schema: { type: string }
+        - in: query
+          name: filter
+          schema: { type: string }
+          description: Filter expression
+      responses:
+        '200':
+          description: Device list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  nextPageToken: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Devices]
+      summary: Create (pair) a device
+      description: Creates a device resource using a pairing code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device:
+                  $ref: '#/components/schemas/Device'
+                pairingCode:
+                  type: string
+                  minLength: 4
+                  maxLength: 64
+              required: [pairingCode]
+      responses:
+        '201':
+          description: Device created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/devices/{deviceId}:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+      - in: path
+        name: deviceId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Devices]
+      summary: Get device
+      responses:
+        '200':
+          description: Device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Devices]
+      summary: Update device fields
+      parameters:
+        - in: query
+          name: updateMask
+          schema: { type: string }
+          description: Comma-separated list of fields to update (field mask)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Device'
+      responses:
+        '200':
+          description: Updated device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/devices/{deviceId}:checkFirmware:
+    get:
+      tags: [Devices]
+      summary: Check firmware status (custom method)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: deviceId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Firmware info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwareInfo'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/users/{userId}/devices/{deviceId}/breadcrumbs:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+      - in: path
+        name: deviceId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Breadcrumbs]
+      summary: List breadcrumbs
+      parameters:
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 5000, default: 1000 }
+        - in: query
+          name: pageToken
+          schema: { type: string }
+        - in: query
+          name: filter
+          schema: { type: string }
+          description: 'e.g., createTime>"2025-01-01T00:00:00Z"'
+        - in: query
+          name: orderBy
+          schema: { type: string }
+      responses:
+        '200':
+          description: Breadcrumb list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  breadcrumbs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Breadcrumb'
+                  nextPageToken: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Breadcrumbs]
+      summary: Create a breadcrumb
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                breadcrumb:
+                  $ref: '#/components/schemas/Breadcrumb'
+              required: [breadcrumb]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Breadcrumb'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/users/{userId}/devices/{deviceId}/breadcrumbs:batchCreate:
+    post:
+      tags: [Breadcrumbs]
+      summary: Batch create breadcrumbs (custom method)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: deviceId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                breadcrumbs:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Breadcrumb'
+              required: [breadcrumbs]
+      responses:
+        '200':
+          description: Batch result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  createdCount: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/familyMembers:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Family]
+      summary: List family members
+      responses:
+        '200':
+          description: Family list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  familyMembers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FamilyMember'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Family]
+      summary: Create a family member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                familyMember:
+                  $ref: '#/components/schemas/FamilyMember'
+              required: [familyMember]
+      responses:
+        '201':
+          description: Member created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyMember'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/familyMembers/{memberId}:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+      - in: path
+        name: memberId
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [Family]
+      summary: Delete a family member
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/users/{userId}/settings:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Settings]
+      summary: Get user settings
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Settings]
+      summary: Update user settings
+      parameters:
+        - in: query
+          name: updateMask
+          schema: { type: string }
+          description: Comma-separated list of fields to update (field mask)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Settings'
+      responses:
+        '200':
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/{userId}/messages:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Messages]
+      summary: Create a message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  $ref: '#/components/schemas/Message'
+              required: [message]
+      responses:
+        '201':
+          description: Message created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+        code: { type: string }
+      required: [message]
+
+    LatLng:
+      type: object
+      properties:
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+      required: [latitude, longitude]
+
+    Location:
+      type: object
+      properties:
+        latLng: { $ref: '#/components/schemas/LatLng' }
+        accuracyMeters: { type: number, format: float }
+      required: [latLng]
+
+    Breadcrumb:
+      type: object
+      description: Breadcrumb/waypoint resource
+      properties:
+        name:
+          type: string
+          description: Resource name, e.g. users/123/devices/abc/breadcrumbs/def
+        createTime:
+          type: string
+          format: date-time
+        position:
+          $ref: '#/components/schemas/LatLng'
+      required: [position]
+
+    CheckIn:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Resource name, e.g. users/123/checkIns/abc
+        type:
+          type: string
+          enum: [ok, delayed, custom]
+        message: { type: string, maxLength: 280 }
+        deviceId: { type: string }
+        location: { $ref: '#/components/schemas/Location' }
+        createTime: { type: string, format: date-time }
+      required: [type]
+
+    SOSStatus:
+      type: object
+      properties:
+        name:
+          type: string
+          description: users/{userId}/sos
+        active: { type: boolean }
+        startTime: { type: string, format: date-time }
+        cancelTime: { type: string, format: date-time, nullable: true }
+        lastKnownLocation: { $ref: '#/components/schemas/Location' }
+      required: [active]
+
+    FamilyMember:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Resource name, e.g. users/123/familyMembers/abc
+        displayName: { type: string }
+        status: { type: string }
+        lastSeenTime: { type: string, format: date-time, nullable: true }
+      required: [displayName]
+
+    Settings:
+      type: object
+      properties:
+        name:
+          type: string
+          description: users/{userId}/settings
+        autoAlerts: { type: boolean }
+        notifyContacts: { type: boolean }
+        sosAutoCall: { type: boolean }
+        geofenceRadiusMeters: { type: integer, minimum: 0 }
+
+    Device:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Resource name, e.g. users/123/devices/abc
+        batteryPercent: { type: integer, minimum: 0, maximum: 100 }
+        solar: { type: boolean }
+        connectionState: { type: string, enum: [ONLINE, OFFLINE, DEGRADED] }
+        firmwareVersion: { type: string }
+        lastSeenTime: { type: string, format: date-time }
+        location: { $ref: '#/components/schemas/Location' }
+
+    FirmwareInfo:
+      type: object
+      properties:
+        currentVersion: { type: string }
+        latestVersion: { type: string }
+        updateAvailable: { type: boolean }
+        releaseNotes: { type: string }
+
+    Message:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Resource name, e.g. users/123/messages/abc
+        text: { type: string, minLength: 1, maxLength: 280 }
+        deviceId: { type: string }
+        location: { $ref: '#/components/schemas/Location' }
+        createTime: { type: string, format: date-time }
